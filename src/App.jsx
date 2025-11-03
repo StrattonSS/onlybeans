@@ -11,8 +11,7 @@ import DiscoverPage from './components/DiscoverPage';
 import UploadPage from './components/UploadPage';
 import ProfilePage from './components/ProfilePage';
 import AdminPage from './components/AdminPage';
-import NotificationPage from './components/NotificationPage';
-
+import SettingsPage from './components/SettingsPage';
 // Modals
 import AddCatModal from './components/modals/AddCatModal';
 import BuyTreatsModal from './components/modals/BuyTreatsModal';
@@ -171,9 +170,6 @@ function App() {
         return <LoginPage />;
     }
 
-    // Find gifting post for modal
-    const giftingPost = giftingPostId ? posts.find(p => p.id === giftingPostId) : null;
-
     // Main app
     return (
         <div className="min-h-screen bg-gray-50">
@@ -225,20 +221,17 @@ function App() {
                         setSelectedCat={setSelectedCat}
                         setShowAddCat={setShowAddCat}
                         setShowRedemption={setShowRedemption}
+                        setCurrentPage={setCurrentPage}
+                    />
+                )}
+                {currentPage === 'settings' && (
+                    <SettingsPage
+                        currentUser={currentUser}
                         refreshCurrentUser={refreshCurrentUser}
                     />
                 )}
 
-                {currentPage === 'notifications' && (
-                    <NotificationPage
-                        currentUser={currentUser}
-                        setCurrentPage={setCurrentPage}
-                    />
-                )}
-
-                {currentUser?.isAdmin && currentPage === 'admin' && (
-                    <AdminPage currentUser={currentUser} users={users} loadUsers={loadUsers} />
-                )}
+                {currentPage === 'admin' && <AdminPage currentUser={currentUser} />}
             </div>
 
             {/* Modals */}
@@ -255,6 +248,7 @@ function App() {
                     currentUser={currentUser}
                     setShowAddCat={setShowAddCat}
                     loadUserCats={loadUserCats}
+                    refreshCurrentUser={refreshCurrentUser}  // <-- important
                 />
             )}
 
@@ -269,18 +263,18 @@ function App() {
                 />
             )}
 
-            {showBugReport && (
-                <BugReportModal currentUser={currentUser} setShowBugReport={setShowBugReport} />
-            )}
-
-            {giftingPost && (
+            {giftingPostId && (
                 <GiftTreatsModal
-                    post={giftingPost}
+                    post={posts.find((p) => p.id === giftingPostId) || null}
                     currentUser={currentUser}
                     setGiftingPostId={setGiftingPostId}
                     refreshCurrentUser={refreshCurrentUser}
                     loadPosts={loadPosts}
                 />
+            )}
+
+            {showBugReport && (
+                <BugReportModal currentUser={currentUser} setShowBugReport={setShowBugReport} />
             )}
         </div>
     );
