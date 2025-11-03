@@ -11,6 +11,7 @@ import DiscoverPage from './components/DiscoverPage';
 import UploadPage from './components/UploadPage';
 import ProfilePage from './components/ProfilePage';
 import AdminPage from './components/AdminPage';
+import NotificationPage from './components/NotificationPage';
 
 // Modals
 import AddCatModal from './components/modals/AddCatModal';
@@ -170,6 +171,9 @@ function App() {
         return <LoginPage />;
     }
 
+    // Find gifting post for modal
+    const giftingPost = giftingPostId ? posts.find(p => p.id === giftingPostId) : null;
+
     // Main app
     return (
         <div className="min-h-screen bg-gray-50">
@@ -221,11 +225,20 @@ function App() {
                         setSelectedCat={setSelectedCat}
                         setShowAddCat={setShowAddCat}
                         setShowRedemption={setShowRedemption}
+                        refreshCurrentUser={refreshCurrentUser}
+                    />
+                )}
+
+                {currentPage === 'notifications' && (
+                    <NotificationPage
+                        currentUser={currentUser}
                         setCurrentPage={setCurrentPage}
                     />
                 )}
 
-                {currentPage === 'admin' && <AdminPage currentUser={currentUser} />}
+                {currentUser?.isAdmin && currentPage === 'admin' && (
+                    <AdminPage currentUser={currentUser} users={users} loadUsers={loadUsers} />
+                )}
             </div>
 
             {/* Modals */}
@@ -242,7 +255,6 @@ function App() {
                     currentUser={currentUser}
                     setShowAddCat={setShowAddCat}
                     loadUserCats={loadUserCats}
-                    refreshCurrentUser={refreshCurrentUser}  // <-- important
                 />
             )}
 
@@ -257,18 +269,18 @@ function App() {
                 />
             )}
 
-            {giftingPostId && (
+            {showBugReport && (
+                <BugReportModal currentUser={currentUser} setShowBugReport={setShowBugReport} />
+            )}
+
+            {giftingPost && (
                 <GiftTreatsModal
-                    post={posts.find((p) => p.id === giftingPostId) || null}
+                    post={giftingPost}
                     currentUser={currentUser}
                     setGiftingPostId={setGiftingPostId}
                     refreshCurrentUser={refreshCurrentUser}
                     loadPosts={loadPosts}
                 />
-            )}
-
-            {showBugReport && (
-                <BugReportModal currentUser={currentUser} setShowBugReport={setShowBugReport} />
             )}
         </div>
     );

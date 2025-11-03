@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Camera, Heart, MessageCircle, Gift, Edit, Trash2, MoreVertical, Send } from 'lucide-react';
 import { doc, updateDoc, increment, arrayUnion, arrayRemove, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { createLikeNotification, createCommentNotification } from '../utils/notifications';
 
 function HomePage({
                       currentUser,
@@ -23,6 +24,7 @@ function HomePage({
     // Category map (memoized so we don't rebuild it for every tile)
     const categoryMap = useMemo(
         () => ({
+            throwback: { emoji: '🕰️', name: 'Throwback', special: true },
             everyday: { emoji: '🐱', name: 'Everyday', special: false },
             'rainbow-bridge': { emoji: '🌈', name: 'Rainbow Bridge', special: true },
             adoption: { emoji: '🏠', name: 'Adoption', special: true },
@@ -71,17 +73,23 @@ function HomePage({
 
         try {
             if (hasLiked) {
-                // Guard: avoid going negative on likes
+                // Unlike - no notification
                 const likeUpdate = Math.max((post.likes || 0) - 1, 0);
                 await updateDoc(doc(db, 'posts', post.id), {
                     likes: likeUpdate === (post.likes || 0) ? increment(-1) : likeUpdate,
                     likedBy: arrayRemove(currentUser.uid),
                 });
             } else {
+                // Like - create notification
                 await updateDoc(doc(db, 'posts', post.id), {
                     likes: increment(1),
                     likedBy: arrayUnion(currentUser.uid),
                 });
+
+                // Create notification for post owner
+                if (post.userId) {
+                    await createLikeNotification(post.userId, currentUser, post);
+                }
             }
             await loadPosts();
         } catch (error) {
@@ -114,6 +122,16 @@ function HomePage({
                 comments: increment(1),
                 commentsList: arrayUnion(newComment),
             });
+
+            // Create notification for post owner
+            if (post.userId) {
+                await createCommentNotification(
+                    post.userId,
+                    currentUser,
+                    post,
+                    commentText.trim()
+                );
+            }
 
             setCommentText('');
             await loadPosts();
@@ -282,8 +300,8 @@ function HomePage({
                                                                 cat.special ? 'bg-pink-500 text-white' : 'bg-purple-500 text-white'
                                                             }`}
                                                         >
-                              {cat.emoji} {cat.name}
-                            </span>
+                                                            {cat.emoji} {cat.name}
+                                                        </span>
                                                     ) : null;
                                                 })}
                                             </div>

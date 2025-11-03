@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
-import { doc, runTransaction } from 'firebase/firestore';
+import { doc, runTransaction, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { createGiftNotification } from '../../utils/notifications';
 
 function GiftTreatsModal({ post, currentUser, setGiftingPostId, refreshCurrentUser, loadPosts }) {
     const [treatAmount, setTreatAmount] = useState(5);
@@ -17,6 +18,8 @@ function GiftTreatsModal({ post, currentUser, setGiftingPostId, refreshCurrentUs
         setIsProcessing(true);
 
         try {
+            let catOwnerId = null;
+
             // Use Firestore transaction to ensure all-or-nothing behavior
             await runTransaction(db, async (transaction) => {
                 const userRef = doc(db, 'users', currentUser.uid);
@@ -43,6 +46,9 @@ function GiftTreatsModal({ post, currentUser, setGiftingPostId, refreshCurrentUs
                     throw new Error('Insufficient treats');
                 }
 
+                // Get cat owner ID for notification
+                catOwnerId = catDoc.data().ownerId;
+
                 // Perform all updates atomically
                 transaction.update(userRef, {
                     treatBalance: (currentBalance - treatAmount)
@@ -58,6 +64,11 @@ function GiftTreatsModal({ post, currentUser, setGiftingPostId, refreshCurrentUs
                     treats: (currentPostTreats + treatAmount)
                 });
             });
+
+            // Create notification for cat owner
+            if (catOwnerId) {
+                await createGiftNotification(catOwnerId, currentUser, post, treatAmount);
+            }
 
             // Transaction successful - refresh data
             await Promise.all([

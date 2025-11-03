@@ -3,9 +3,17 @@ import {
     Users, Bug, Shield, Activity, CheckCircle, XCircle, Ban, UserX, Package, Truck
 } from 'lucide-react';
 import {
-    collection, getDocs, getDoc, doc, updateDoc, deleteDoc
+    collection, getDocs, getDoc, doc, updateDoc, deleteDoc, increment
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import {
+    createShelterApprovedNotification,
+    createShelterRejectedNotification,
+    createRedemptionApprovedNotification,
+    createRedemptionRejectedNotification,
+    createBanNotification,
+    createUnbanNotification
+} from '../utils/notifications';
 
 function AdminPage({ currentUser }) {
     const [activeTab, setActiveTab] = useState('bugs');
@@ -60,7 +68,6 @@ function AdminPage({ currentUser }) {
         }
     };
 
-    // ----- Loaders -----
     const loadBugReports = async () => {
         try {
             const snap = await getDocs(collection(db, 'bugReports'));
@@ -113,12 +120,9 @@ function AdminPage({ currentUser }) {
             const snap = await getDocs(collection(db, 'redemptions'));
             let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-            // Enrich each redemption with user/shelter display info.
-            // If it's a donation and shippingAddress is missing, derive it from the shelter's user record.
             items = await Promise.all(items.map(async (r) => {
                 let enriched = { ...r };
 
-                // Attach user display fields (if available)
                 if (r.userId) {
                     try {
                         const u = await getDoc(doc(db, 'users', r.userId));
@@ -132,14 +136,12 @@ function AdminPage({ currentUser }) {
                     }
                 }
 
-                // If donation to shelter, attach shelter display + derive address if none on the redemption
                 if (r.type === 'donate' && r.shelterId) {
                     try {
                         const s = await getDoc(doc(db, 'users', r.shelterId));
                         if (s.exists()) {
                             const sd = s.data();
                             enriched.shelterName = sd.shelterName || sd.displayName || sd.username || r.shelterId;
-                            // Derive a displayable address if redemption didn't store one
                             if (!r.shippingAddress && sd.shippingAddress) {
                                 enriched.derivedShippingAddress = sd.shippingAddress;
                             }
@@ -149,7 +151,6 @@ function AdminPage({ currentUser }) {
                     }
                 }
 
-                // friendly reward/treat fields
                 enriched._treats = r.treats ?? r.treatsRedeemed ?? 0;
                 enriched._rewardName =
                     r.rewardName ||
@@ -158,7 +159,6 @@ function AdminPage({ currentUser }) {
                 return enriched;
             }));
 
-            // newest first
             items.sort((a, b) => {
                 const ta = a.createdAt?.toDate?.()?.getTime?.() ?? 0;
                 const tb = b.createdAt?.toDate?.()?.getTime?.() ?? 0;
@@ -175,7 +175,6 @@ function AdminPage({ currentUser }) {
         }
     };
 
-    // ----- Bug actions -----
     const handleResolveBug = async (bugId, resolution) => {
         try {
             await updateDoc(doc(db, 'bugReports', bugId), {
@@ -204,10 +203,8 @@ function AdminPage({ currentUser }) {
         }
     };
 
-    // ----- Shelter actions -----
     const handleApproveShelter = async (request) => {
         try {
-            // Persist all verified-shelter profile fields, INCLUDING shippingAddress (new)
             await updateDoc(doc(db, 'users', request.userId), {
                 verifiedShelter: true,
                 shelterName: request.shelterName,
@@ -223,6 +220,11 @@ function AdminPage({ currentUser }) {
                 approvedAt: new Date()
             });
 
+            await createShelterApprovedNotification(
+                request.userId,
+                currentUser.displayName || currentUser.username || 'Admin'
+            );
+
             await loadShelterRequests();
             await loadUsers();
             alert('Shelter verified successfully!');
@@ -234,12 +236,24 @@ function AdminPage({ currentUser }) {
 
     const handleRejectShelter = async (requestId, reason) => {
         try {
+            const requestDoc = await getDoc(doc(db, 'shelterRequests', requestId));
+            const userId = requestDoc.exists() ? requestDoc.data().userId : null;
+
             await updateDoc(doc(db, 'shelterRequests', requestId), {
                 status: 'rejected',
                 rejectedBy: currentUser.uid,
                 rejectedAt: new Date(),
                 rejectionReason: reason
             });
+
+            if (userId) {
+                await createShelterRejectedNotification(
+                    userId,
+                    currentUser.displayName || currentUser.username || 'Admin',
+                    reason
+                );
+            }
+
             await loadShelterRequests();
             alert('Shelter request rejected.');
         } catch (error) {
@@ -248,7 +262,6 @@ function AdminPage({ currentUser }) {
         }
     };
 
-    // ----- User actions -----
     const handleBanUser = async (userId, username) => {
         const reason = window.prompt(`Enter reason for banning ${username}:`);
         if (!reason) return;
@@ -261,6 +274,13 @@ function AdminPage({ currentUser }) {
                 bannedBy: currentUser.uid,
                 bannedAt: new Date()
             });
+
+            await createBanNotification(
+                userId,
+                currentUser.displayName || currentUser.username || 'Admin',
+                reason
+            );
+
             await loadUsers();
             alert(`${username} has been banned.`);
         } catch (error) {
@@ -271,12 +291,19 @@ function AdminPage({ currentUser }) {
 
     const handleUnbanUser = async (userId, username) => {
         if (!window.confirm(`Unban ${username}?`)) return;
+
         try {
             await updateDoc(doc(db, 'users', userId), {
                 banned: false,
                 unbannedBy: currentUser.uid,
                 unbannedAt: new Date()
             });
+
+            await createUnbanNotification(
+                userId,
+                currentUser.displayName || currentUser.username || 'Admin'
+            );
+
             await loadUsers();
             alert(`${username} has been unbanned.`);
         } catch (error) {
@@ -285,7 +312,6 @@ function AdminPage({ currentUser }) {
         }
     };
 
-    // ----- Redemption actions -----
     const approveRedemption = async (r) => {
         try {
             await updateDoc(doc(db, 'redemptions', r.id), {
@@ -294,6 +320,14 @@ function AdminPage({ currentUser }) {
                 approvedAt: new Date(),
                 updatedAt: new Date(),
             });
+
+            if (r.userId) {
+                await createRedemptionApprovedNotification(
+                    r.userId,
+                    currentUser.displayName || currentUser.username || 'Admin'
+                );
+            }
+
             await loadRedemptions();
             alert('Redemption approved and moved to Processing.');
         } catch (e) {
@@ -302,313 +336,236 @@ function AdminPage({ currentUser }) {
         }
     };
 
-    const markRedemptionShipped = async (r) => {
-        const trackingNumber = window.prompt('Enter tracking number (optional):') || '';
-        try {
-            await updateDoc(doc(db, 'redemptions', r.id), {
-                status: 'shipped',
-                shippedBy: currentUser.uid,
-                shippedAt: new Date(),
-                trackingNumber,
-                updatedAt: new Date(),
-            });
-            await loadRedemptions();
-            alert('Marked as Shipped.');
-        } catch (e) {
-            console.error('Error marking shipped:', e);
-            alert('Error marking shipped.');
-        }
-    };
-
     const rejectRedemption = async (r) => {
         const reason = window.prompt('Enter rejection reason:');
         if (!reason) return;
+
         try {
+            const treatsToRefund = r.treats || r.treatsRedeemed || 0;
+
+            // Refund treats to the correct place
+            if (r.catId) {
+                // If redemption was for a specific cat, refund to cat's treatsEarned
+                await updateDoc(doc(db, 'cats', r.catId), {
+                    treatsEarned: increment(treatsToRefund)
+                });
+            } else {
+                // Otherwise, refund to user's treatBalance
+                await updateDoc(doc(db, 'users', r.userId), {
+                    treatBalance: increment(treatsToRefund)
+                });
+            }
+
+            // Update redemption status
             await updateDoc(doc(db, 'redemptions', r.id), {
                 status: 'rejected',
                 rejectedBy: currentUser.uid,
                 rejectedAt: new Date(),
                 rejectionReason: reason,
+                refundedTreats: treatsToRefund,
+                updatedAt: new Date(),
+            });
+
+            // Send notification with rejection reason
+            if (r.userId) {
+                await createRedemptionRejectedNotification(
+                    r.userId,
+                    currentUser.displayName || currentUser.username || 'Admin',
+                    reason
+                );
+            }
+
+            await loadRedemptions();
+            alert(`Redemption rejected. ${treatsToRefund} treats refunded and user notified.`);
+        } catch (e) {
+            console.error('Error rejecting redemption:', e);
+            alert('Error rejecting redemption. Please try again.');
+        }
+    };
+
+    const markAsShipped = async (r) => {
+        try {
+            await updateDoc(doc(db, 'redemptions', r.id), {
+                status: 'shipped',
+                shippedBy: currentUser.uid,
+                shippedAt: new Date(),
                 updatedAt: new Date(),
             });
             await loadRedemptions();
-            alert('Redemption rejected.');
+            alert('Redemption marked as shipped!');
         } catch (e) {
-            console.error('Error rejecting redemption:', e);
-            alert('Error rejecting redemption.');
+            console.error('Error marking as shipped:', e);
+            alert('Error updating redemption.');
         }
     };
-
-    const saveRedemptionNotes = async (id, notes) => {
-        try {
-            await updateDoc(doc(db, 'redemptions', id), {
-                notes: notes || '',
-                updatedAt: new Date(),
-            });
-        } catch (e) {
-            console.error('Error saving notes:', e);
-            alert('Could not save notes.');
-        }
-    };
-
-    // ----- UI helpers -----
-    const pendingBugs = bugReports.filter(r => r.status === 'pending');
-    const resolvedBugs = bugReports.filter(r => r.status === 'resolved');
-    const pendingShelterRequests = shelterRequests.filter(r => r.status === 'pending');
 
     const byStatus = (status) => redemptions.filter(r => r.status === status);
+    const pendingBugs = bugReports.filter(r => r.status === 'pending');
+    const resolvedBugs = bugReports.filter(r => r.status === 'resolved');
+    const pendingRequests = shelterRequests.filter(r => r.status === 'pending');
+    const approvedRequests = shelterRequests.filter(r => r.status === 'approved');
+    const rejectedRequests = shelterRequests.filter(r => r.status === 'rejected');
 
-    // Address renderer that supports BOTH schemas:
-    // - User self-redeem (name/address/city/state/zip[/phone])
-    // - Shelter/user shippingAddress (name/street/city/state/zip[/phone])
-    // - Legacy schema (fullName/address1/address2/city/state/zip)
-    const AddressBlock = ({ addr }) => {
-        if (!addr) return <p className="text-sm text-gray-500 italic">No address provided</p>;
-
-        // Normalize keys
-        const fullName = addr.fullName || addr.name || addr.recipient || '';
-        const line1 = addr.address1 || addr.street || addr.address || '';
-        const line2 = addr.address2 || '';
-        const city = addr.city || '';
-        const state = addr.state || '';
-        const zip = addr.zip || addr.postalCode || '';
-        const phone = addr.phone || '';
-
-        if (!fullName && !line1 && !city && !state && !zip) {
-            return <p className="text-sm text-gray-500 italic">No address provided</p>;
-        }
-
-        return (
-            <div className="text-sm text-gray-700 leading-5">
-                {fullName ? <div className="font-semibold">{fullName}</div> : null}
-                {line1 ? <div>{line1}</div> : null}
-                {line2 ? <div>{line2}</div> : null}
-                {(city || state || zip) ? <div>{city}{city && (state || zip) ? ',' : ''} {state} {zip}</div> : null}
-                {phone ? <div className="text-gray-500">📞 {phone}</div> : null}
-            </div>
-        );
-    };
-
-    const RedemptionCard = ({ r }) => {
-        const [localNotes, setLocalNotes] = useState(r.notes || '');
-        const displayAddress = r.shippingAddress || r.derivedShippingAddress || null;
-
-        return (
-            <div
-                key={r.id}
-                className={`border-2 rounded-lg p-4 ${
-                    r.status === 'pending'
-                        ? 'border-yellow-200 bg-yellow-50'
-                        : r.status === 'processing'
-                            ? 'border-blue-200 bg-blue-50'
-                            : r.status === 'shipped'
-                                ? 'border-green-200 bg-green-50'
-                                : 'border-red-200 bg-red-50'
-                }`}
-            >
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                            <Package size={18} className="text-purple-600" />
-                            <h4 className="font-bold">
-                                {r._rewardName} • {r._treats} treats
-                            </h4>
-                        </div>
-                        <p className="text-xs text-gray-500 mb-2">
-                            Requested: {r.createdAt?.toDate?.()?.toLocaleString() || 'Recently'}
+    const RedemptionCard = ({ r }) => (
+        <div className="bg-white border-2 border-gray-200 rounded-lg p-4">
+            <div className="flex items-start justify-between mb-3">
+                <div>
+                    <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-lg">{r._rewardName}</h4>
+                        {r.type === 'donate' && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                                Donation
+                            </span>
+                        )}
+                    </div>
+                    <p className="text-sm text-gray-600 mt-1">
+                        <strong>User:</strong> {r.username || 'N/A'} ({r.userEmail || 'N/A'})
+                    </p>
+                    {r.type === 'donate' && r.shelterName && (
+                        <p className="text-sm text-gray-600">
+                            <strong>Shelter:</strong> {r.shelterName}
                         </p>
-
-                        <div className="grid md:grid-cols-3 gap-4">
-                            <div>
-                                <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">User</p>
-                                <div className="text-sm">
-                                    <div className="font-semibold">{r.username || r.userEmail || r.userId}</div>
-                                    {r.userEmail && <div className="text-gray-600">{r.userEmail}</div>}
-                                </div>
-                            </div>
-
-                            <div>
-                                <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Cat</p>
-                                <div className="text-sm">
-                                    <div className="font-semibold">{r.catName || r.catId || '—'}</div>
-                                </div>
-                            </div>
-
-                            <div>
-                                <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Status</p>
-                                <div>
-                  <span
-                      className={`text-xs px-2 py-1 rounded-full font-semibold ${
-                          r.status === 'pending' ? 'bg-yellow-500 text-white'
-                              : r.status === 'processing' ? 'bg-blue-500 text-white'
-                                  : r.status === 'shipped' ? 'bg-green-600 text-white'
-                                      : 'bg-red-600 text-white'
-                      }`}
-                  >
-                    {r.status}
-                  </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="mt-4 grid md:grid-cols-2 gap-4">
-                            <div>
-                                <div className="flex items-center justify-between">
-                                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Shipping Address</p>
-                                    {r.type === 'donate' && r.shelterName && (
-                                        <span className="text-xs text-gray-600 italic">Destination: {r.shelterName}</span>
-                                    )}
-                                </div>
-                                <div className="rounded-lg border bg-white p-3">
-                                    <AddressBlock addr={displayAddress} />
-                                </div>
-                            </div>
-
-                            <div>
-                                <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Notes</p>
-                                <div className="rounded-lg border bg-white p-2">
-                  <textarea
-                      className="w-full text-sm p-2 outline-none"
-                      rows={3}
-                      value={localNotes}
-                      onChange={(e) => setLocalNotes(e.target.value)}
-                      onBlur={() => saveRedemptionNotes(r.id, localNotes)}
-                      placeholder="Internal processing notes..."
-                  />
-                                </div>
-                            </div>
-                        </div>
-
-                        {r.trackingNumber && (
-                            <div className="mt-3 text-sm text-gray-700">
-                                <span className="font-semibold">Tracking:</span> {r.trackingNumber}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex flex-col gap-2 min-w-[180px]">
-                        {r.status === 'pending' && (
-                            <>
-                                <button
-                                    onClick={() => approveRedemption(r)}
-                                    className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition text-sm flex items-center gap-2"
-                                >
-                                    <CheckCircle size={16} /> Approve → Processing
-                                </button>
-                                <button
-                                    onClick={() => rejectRedemption(r)}
-                                    className="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition text-sm flex items-center gap-2"
-                                >
-                                    <XCircle size={16} /> Reject
-                                </button>
-                            </>
-                        )}
-
-                        {r.status === 'processing' && (
-                            <button
-                                onClick={() => markRedemptionShipped(r)}
-                                className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition text-sm flex items-center gap-2"
-                            >
-                                <Truck size={16} /> Mark Shipped
-                            </button>
-                        )}
-                    </div>
+                    )}
+                    <p className="text-sm text-gray-600">
+                        <strong>Treats:</strong> {r._treats}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-2">
+                        Requested: {r.createdAt?.toDate?.()?.toLocaleString() || 'Recently'}
+                    </p>
                 </div>
+                <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                    r.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        r.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                            r.status === 'shipped' ? 'bg-green-100 text-green-800' :
+                                r.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
+                }`}>
+                    {r.status}
+                </span>
             </div>
-        );
-    };
+
+            {r.shippingAddress && (
+                <div className="bg-gray-50 p-3 rounded mt-3 text-sm">
+                    <p className="font-semibold mb-1">Shipping Address:</p>
+                    <p>{r.shippingAddress.fullName}</p>
+                    <p>{r.shippingAddress.address1}</p>
+                    {r.shippingAddress.address2 && <p>{r.shippingAddress.address2}</p>}
+                    <p>{r.shippingAddress.city}, {r.shippingAddress.state} {r.shippingAddress.zip}</p>
+                    {r.shippingAddress.phone && <p>Phone: {r.shippingAddress.phone}</p>}
+                </div>
+            )}
+
+            {r.notes && (
+                <div className="bg-blue-50 p-3 rounded mt-3 text-sm">
+                    <p className="font-semibold mb-1">Notes:</p>
+                    <p>{r.notes}</p>
+                </div>
+            )}
+
+            {r.status === 'pending' && (
+                <div className="flex gap-2 mt-4">
+                    <button
+                        onClick={() => approveRedemption(r)}
+                        className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
+                    >
+                        <CheckCircle size={16} className="inline mr-2" />
+                        Approve
+                    </button>
+                    <button
+                        onClick={() => rejectRedemption(r)}
+                        className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition"
+                    >
+                        <XCircle size={16} className="inline mr-2" />
+                        Reject
+                    </button>
+                </div>
+            )}
+            {r.status === 'processing' && (
+                <button
+                    onClick={() => markAsShipped(r)}
+                    className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition mt-4"
+                >
+                    <Truck size={16} className="inline mr-2" />
+                    Mark as Shipped
+                </button>
+            )}
+        </div>
+    );
 
     if (loading) {
         return (
             <div className="max-w-6xl mx-auto text-center py-12">
-                <div className="text-4xl mb-4">⏳</div>
-                <p className="text-gray-600">Loading admin data...</p>
+                <Activity size={48} className="mx-auto mb-4 text-gray-400 animate-spin" />
+                <p className="text-gray-600">Loading admin panel...</p>
             </div>
         );
     }
 
     return (
         <div className="max-w-6xl mx-auto">
-            <div className="mb-8">
-                <h2 className="text-3xl font-bold mb-2">Admin Dashboard</h2>
-                <p className="text-gray-600">Manage OnlyBeans platform</p>
-            </div>
-
-            {/* Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-gray-700">Total Users</h3>
-                        <Users size={24} className="text-purple-500" />
-                    </div>
-                    <div className="text-3xl font-bold text-purple-600 mb-1">{stats.totalUsers}</div>
-                    <p className="text-sm text-gray-500">{stats.catOwners} cat owners</p>
+            <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg shadow-lg p-6 mb-6 text-white">
+                <div className="flex items-center gap-3 mb-4">
+                    <Shield size={32} />
+                    <h1 className="text-3xl font-bold">Admin Panel</h1>
                 </div>
-
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-gray-700">Pending Bugs</h3>
-                        <Bug size={24} className="text-red-500" />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-white bg-opacity-20 rounded-lg p-4">
+                        <p className="text-sm opacity-90">Total Users</p>
+                        <p className="text-2xl font-bold">{stats.totalUsers}</p>
                     </div>
-                    <div className="text-3xl font-bold text-red-600 mb-1">{stats.pendingBugs}</div>
-                    <p className="text-sm text-gray-500">{bugReports.length} total reports</p>
-                </div>
-
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-gray-700">Shelter Requests</h3>
-                        <Shield size={24} className="text-green-500" />
+                    <div className="bg-white bg-opacity-20 rounded-lg p-4">
+                        <p className="text-sm opacity-90">Pending Bugs</p>
+                        <p className="text-2xl font-bold">{stats.pendingBugs}</p>
                     </div>
-                    <div className="text-3xl font-bold text-green-600 mb-1">{stats.pendingShelterRequests}</div>
-                    <p className="text-sm text-gray-500">{shelterRequests.length} total requests</p>
-                </div>
-
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-gray-700">Platform Health</h3>
-                        <Activity size={24} className="text-blue-500" />
+                    <div className="bg-white bg-opacity-20 rounded-lg p-4">
+                        <p className="text-sm opacity-90">Pending Shelters</p>
+                        <p className="text-2xl font-bold">{stats.pendingShelterRequests}</p>
                     </div>
-                    <div className="text-4xl mb-1">✅</div>
-                    <p className="text-sm text-gray-500">All clear!</p>
+                    <div className="bg-white bg-opacity-20 rounded-lg p-4">
+                        <p className="text-sm opacity-90">Pending Redemptions</p>
+                        <p className="text-2xl font-bold">{stats.pendingRedemptions}</p>
+                    </div>
                 </div>
             </div>
 
-            {/* Tabs */}
             <div className="bg-white rounded-lg shadow">
-                <div className="border-b border-gray-200">
-                    <div className="flex flex-wrap">
+                <div className="border-b">
+                    <div className="flex gap-4 p-4 overflow-x-auto">
                         <button
                             onClick={() => setActiveTab('bugs')}
-                            className={`flex items-center gap-2 px-6 py-4 font-semibold transition ${
-                                activeTab === 'bugs' ? 'border-b-2 border-purple-500 text-purple-600' : 'text-gray-600 hover:text-gray-800'
+                            className={`px-4 py-2 font-medium transition flex items-center gap-2 whitespace-nowrap ${
+                                activeTab === 'bugs'
+                                    ? 'border-b-2 border-purple-500 text-purple-600'
+                                    : 'text-gray-600 hover:text-gray-800'
                             }`}
                         >
-                            <Bug size={20} /> Bug Reports ({bugReports.filter(b => b.status === 'pending').length})
+                            <Bug size={20} /> Bug Reports
                         </button>
-
                         <button
                             onClick={() => setActiveTab('shelters')}
-                            className={`flex items-center gap-2 px-6 py-4 font-semibold transition ${
-                                activeTab === 'shelters' ? 'border-b-2 border-purple-500 text-purple-600' : 'text-gray-600 hover:text-gray-800'
+                            className={`px-4 py-2 font-medium transition flex items-center gap-2 whitespace-nowrap ${
+                                activeTab === 'shelters'
+                                    ? 'border-b-2 border-purple-500 text-purple-600'
+                                    : 'text-gray-600 hover:text-gray-800'
                             }`}
                         >
-                            <Shield size={20} /> Shelter Requests ({shelterRequests.filter(r => r.status === 'pending').length})
+                            <Shield size={20} /> Shelter Requests
                         </button>
-
                         <button
                             onClick={() => setActiveTab('redemptions')}
-                            className={`flex items-center gap-2 px-6 py-4 font-semibold transition ${
-                                activeTab === 'redemptions' ? 'border-b-2 border-purple-500 text-purple-600' : 'text-gray-600 hover:text-gray-800'
+                            className={`px-4 py-2 font-medium transition flex items-center gap-2 whitespace-nowrap ${
+                                activeTab === 'redemptions'
+                                    ? 'border-b-2 border-purple-500 text-purple-600'
+                                    : 'text-gray-600 hover:text-gray-800'
                             }`}
                         >
-                            <Package size={20} /> Redemptions ({stats.pendingRedemptions})
+                            <Package size={20} /> Redemptions
                         </button>
-
                         <button
                             onClick={() => setActiveTab('users')}
-                            className={`flex items-center gap-2 px-6 py-4 font-semibold transition ${
-                                activeTab === 'users' ? 'border-b-2 border-purple-500 text-purple-600' : 'text-gray-600 hover:text-gray-800'
+                            className={`px-4 py-2 font-medium transition flex items-center gap-2 whitespace-nowrap ${
+                                activeTab === 'users'
+                                    ? 'border-b-2 border-purple-500 text-purple-600'
+                                    : 'text-gray-600 hover:text-gray-800'
                             }`}
                         >
                             <Users size={20} /> User Management
@@ -617,7 +574,6 @@ function AdminPage({ currentUser }) {
                 </div>
 
                 <div className="p-6">
-                    {/* BUGS */}
                     {activeTab === 'bugs' && (
                         <div>
                             {bugReports.length === 0 ? (
@@ -626,74 +582,73 @@ function AdminPage({ currentUser }) {
                                     <p className="text-gray-500">No bug reports yet!</p>
                                 </div>
                             ) : (
-                                <div className="space-y-4">
-                                    {/* Pending */}
+                                <div className="space-y-6">
                                     {pendingBugs.length > 0 && (
                                         <>
                                             <h3 className="font-bold text-lg mb-3">Pending Reports</h3>
-                                            {pendingBugs.map(report => (
-                                                <div key={report.id} className="border-2 border-red-200 rounded-lg p-4 bg-red-50">
-                                                    <div className="flex items-start justify-between mb-3">
-                                                        <div className="flex items-start gap-3">
-                                                            <Bug size={20} className="text-red-600 mt-1" />
-                                                            <div>
-                                                                <h4 className="font-bold text-lg">{report.title}</h4>
-                                                                <p className="text-sm text-gray-600">By: {report.username} ({report.email})</p>
-                                                                <p className="text-xs text-gray-500">
-                                                                    {report.submittedAt?.toDate?.()?.toLocaleString() || 'Recently'}
-                                                                </p>
+                                            <div className="space-y-3">
+                                                {pendingBugs.map(report => (
+                                                    <div key={report.id} className="border-2 border-red-200 rounded-lg p-4 bg-red-50">
+                                                        <div className="flex items-start justify-between mb-3">
+                                                            <div className="flex items-start gap-3">
+                                                                <Bug size={20} className="text-red-600 mt-1" />
+                                                                <div>
+                                                                    <h4 className="font-bold text-lg">{report.title}</h4>
+                                                                    <p className="text-sm text-gray-600">By: {report.username} ({report.email})</p>
+                                                                    <p className="text-xs text-gray-500">
+                                                                        {report.submittedAt?.toDate?.()?.toLocaleString() || 'Recently'}
+                                                                    </p>
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                        <span className="bg-red-600 text-white text-xs px-3 py-1 rounded-full">pending</span>
+                                                        <p className="text-gray-700 mb-4">{report.description}</p>
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => {
+                                                                    const resolution = window.prompt('Enter resolution notes:');
+                                                                    if (resolution) handleResolveBug(report.id, resolution);
+                                                                }}
+                                                                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition flex items-center gap-2"
+                                                            >
+                                                                <CheckCircle size={16} />
+                                                                Resolve
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteBug(report.id)}
+                                                                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition flex items-center gap-2"
+                                                            >
+                                                                <XCircle size={16} />
+                                                                Delete
+                                                            </button>
+                                                        </div>
                                                     </div>
-                                                    <p className="text-gray-700 mb-4 ml-8">{report.description}</p>
-                                                    <div className="flex gap-2 ml-8">
-                                                        <button
-                                                            onClick={() => {
-                                                                const resolution = window.prompt('Enter resolution notes (optional):');
-                                                                handleResolveBug(report.id, resolution || 'Resolved');
-                                                            }}
-                                                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition flex items-center gap-2"
-                                                        >
-                                                            <CheckCircle size={16} />
-                                                            Mark as Resolved
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDeleteBug(report.id)}
-                                                            className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition flex items-center gap-2"
-                                                        >
-                                                            <XCircle size={16} />
-                                                            Delete
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                                ))}
+                                            </div>
                                         </>
                                     )}
 
-                                    {/* Resolved */}
                                     {resolvedBugs.length > 0 && (
                                         <>
                                             <h3 className="font-bold text-lg mb-3 mt-6">Resolved Reports</h3>
-                                            {resolvedBugs.map(report => (
-                                                <div key={report.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                                                    <div className="flex items-start justify-between mb-2">
-                                                        <div className="flex items-start gap-3">
-                                                            <CheckCircle size={20} className="text-green-600 mt-1" />
+                                            <div className="space-y-3">
+                                                {resolvedBugs.map(report => (
+                                                    <div key={report.id} className="border rounded-lg p-4 bg-gray-50">
+                                                        <div className="flex items-start justify-between">
                                                             <div>
                                                                 <h4 className="font-bold">{report.title}</h4>
                                                                 <p className="text-sm text-gray-600">By: {report.username}</p>
+                                                                <p className="text-sm text-green-600 mt-2">✓ {report.resolution}</p>
                                                             </div>
+                                                            <button
+                                                                onClick={() => handleDeleteBug(report.id)}
+                                                                className="text-red-600 hover:text-red-800"
+                                                            >
+                                                                <XCircle size={20} />
+                                                            </button>
                                                         </div>
-                                                        <span className="bg-green-600 text-white text-xs px-3 py-1 rounded-full">resolved</span>
                                                     </div>
-                                                    {report.resolution && (
-                                                        <p className="text-sm text-gray-600 ml-8 mt-2">
-                                                            <strong>Resolution:</strong> {report.resolution}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            ))}
+                                                ))}
+                                            </div>
                                         </>
                                     )}
                                 </div>
@@ -701,49 +656,21 @@ function AdminPage({ currentUser }) {
                         </div>
                     )}
 
-                    {/* SHELTERS */}
                     {activeTab === 'shelters' && (
-                        <div>
-                            {pendingShelterRequests.length === 0 ? (
-                                <div className="text-center py-12">
-                                    <Shield size={48} className="mx-auto mb-4 text-gray-400" />
-                                    <p className="text-gray-500">No pending shelter requests</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {pendingShelterRequests.map(request => (
-                                        <div key={request.id} className="border-2 border-green-200 rounded-lg p-6 bg-green-50">
-                                            <div className="flex items-start justify-between mb-4">
-                                                <div>
-                                                    <h3 className="text-xl font-bold mb-1">{request.shelterName}</h3>
-                                                    <p className="text-gray-600">{request.location}</p>
-                                                    {request.website && (
-                                                        <a href={request.website} target="_blank" rel="noopener noreferrer" className="text-purple-600 text-sm hover:underline">
-                                                            {request.website}
-                                                        </a>
-                                                    )}
-                                                </div>
-                                                <span className="bg-yellow-600 text-white text-xs px-3 py-1 rounded-full">pending</span>
-                                            </div>
-
-                                            <div className="mb-4">
-                                                <p className="text-sm font-semibold mb-1">About:</p>
-                                                <p className="text-gray-700">{request.description}</p>
-                                            </div>
-
-                                            {/* Show shipping address submitted with request (new) */}
-                                            <div className="mb-4">
-                                                <p className="text-sm font-semibold mb-1">Shipping Address (for donations)</p>
-                                                <div className="rounded-lg border bg-white p-3">
-                                                    <AddressBlock addr={request.shippingAddress} />
-                                                </div>
-                                            </div>
-
-                                            <div className="mb-4 text-sm">
-                                                <p className="text-gray-600">
-                                                    <strong>Submitted by:</strong> {request.username} ({request.email})
+                        <div className="space-y-8">
+                            {pendingRequests.length > 0 && (
+                                <div>
+                                    <h3 className="font-bold text-lg mb-3">Pending Requests</h3>
+                                    {pendingRequests.map(request => (
+                                        <div key={request.id} className="border-2 border-yellow-200 rounded-lg p-4 bg-yellow-50 mb-3">
+                                            <h4 className="font-bold text-lg mb-2">{request.shelterName}</h4>
+                                            <div className="space-y-1 text-sm mb-4">
+                                                <p><strong>Location:</strong> {request.location}</p>
+                                                <p><strong>Website:</strong> {request.website || 'N/A'}</p>
+                                                <p><strong>Description:</strong> {request.description}</p>
+                                                <p className="text-xs text-gray-500 mt-2">
+                                                    Submitted: {request.submittedAt?.toDate?.()?.toLocaleString() || 'Recently'}
                                                 </p>
-                                                <p className="text-gray-500">{request.submittedAt?.toDate?.()?.toLocaleString() || 'Recently'}</p>
                                             </div>
 
                                             <div className="flex gap-3">
@@ -769,13 +696,35 @@ function AdminPage({ currentUser }) {
                                     ))}
                                 </div>
                             )}
+
+                            {approvedRequests.length > 0 && (
+                                <div>
+                                    <h3 className="font-bold text-lg mb-3">Approved Shelters</h3>
+                                    {approvedRequests.map(request => (
+                                        <div key={request.id} className="border rounded-lg p-4 bg-green-50 mb-2">
+                                            <p className="font-bold">{request.shelterName}</p>
+                                            <p className="text-sm text-gray-600">{request.location}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {rejectedRequests.length > 0 && (
+                                <div>
+                                    <h3 className="font-bold text-lg mb-3">Rejected Requests</h3>
+                                    {rejectedRequests.map(request => (
+                                        <div key={request.id} className="border rounded-lg p-4 bg-red-50 mb-2">
+                                            <p className="font-bold">{request.shelterName}</p>
+                                            <p className="text-sm text-red-600">Reason: {request.rejectionReason}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 
-                    {/* REDEMPTIONS */}
                     {activeTab === 'redemptions' && (
                         <div className="space-y-8">
-                            {/* Pending */}
                             <section>
                                 <h3 className="font-bold text-lg mb-3">Pending</h3>
                                 <div className="space-y-3">
@@ -785,99 +734,93 @@ function AdminPage({ currentUser }) {
                                 </div>
                             </section>
 
-                            {/* Processing */}
                             <section>
                                 <h3 className="font-bold text-lg mb-3">Processing</h3>
                                 <div className="space-y-3">
                                     {byStatus('processing').length === 0 ? (
-                                        <p className="text-sm text-gray-500">Nothing in processing.</p>
+                                        <p className="text-sm text-gray-500">None processing.</p>
                                     ) : byStatus('processing').map(r => <RedemptionCard key={r.id} r={r} />)}
                                 </div>
                             </section>
 
-                            {/* Shipped */}
                             <section>
                                 <h3 className="font-bold text-lg mb-3">Shipped</h3>
                                 <div className="space-y-3">
                                     {byStatus('shipped').length === 0 ? (
-                                        <p className="text-sm text-gray-500">No shipped redemptions yet.</p>
+                                        <p className="text-sm text-gray-500">None shipped yet.</p>
                                     ) : byStatus('shipped').map(r => <RedemptionCard key={r.id} r={r} />)}
                                 </div>
                             </section>
 
-                            {/* Rejected */}
                             <section>
                                 <h3 className="font-bold text-lg mb-3">Rejected</h3>
                                 <div className="space-y-3">
                                     {byStatus('rejected').length === 0 ? (
-                                        <p className="text-sm text-gray-500">No rejected redemptions.</p>
+                                        <p className="text-sm text-gray-500">None rejected.</p>
                                     ) : byStatus('rejected').map(r => <RedemptionCard key={r.id} r={r} />)}
                                 </div>
                             </section>
                         </div>
                     )}
 
-                    {/* USERS */}
                     {activeTab === 'users' && (
                         <div>
-                            <div className="mb-4">
-                                <h3 className="font-bold text-lg mb-2">User Management</h3>
-                                <p className="text-sm text-gray-600">Ban or unban users from the platform</p>
+                            <div className="mb-4 grid grid-cols-3 gap-4">
+                                <div className="bg-purple-50 p-4 rounded-lg">
+                                    <p className="text-sm text-gray-600">Cat Owners</p>
+                                    <p className="text-2xl font-bold text-purple-600">{stats.catOwners}</p>
+                                </div>
+                                <div className="bg-blue-50 p-4 rounded-lg">
+                                    <p className="text-sm text-gray-600">Viewers</p>
+                                    <p className="text-2xl font-bold text-blue-600">{stats.viewers}</p>
+                                </div>
+                                <div className="bg-green-50 p-4 rounded-lg">
+                                    <p className="text-sm text-gray-600">Verified Shelters</p>
+                                    <p className="text-2xl font-bold text-green-600">{stats.shelters}</p>
+                                </div>
                             </div>
+
                             <div className="space-y-2">
                                 {users.map(user => (
-                                    <div
-                                        key={user.id}
-                                        className={`border rounded-lg p-4 ${user.banned ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <div className="text-2xl">{user.avatar || '😺'}</div>
-                                                <div>
-                                                    <div className="flex items-center gap-2">
-                                                        <h4 className="font-semibold">{user.username || user.displayName}</h4>
-                                                        {user.verifiedShelter && (
-                                                            <span className="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
-                                <Shield size={10} /> Shelter
-                              </span>
-                                                        )}
-                                                        {user.isAdmin && (
-                                                            <span className="bg-purple-100 text-purple-800 text-xs px-2 py-0.5 rounded-full">Admin</span>
-                                                        )}
-                                                        {user.banned && (
-                                                            <span className="bg-red-600 text-white text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
-                                <Ban size={10} /> Banned
-                              </span>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-sm text-gray-600">{user.email}</p>
-                                                    <p className="text-xs text-gray-500">
-                                                        {user.accountType === 'feline' ? 'Cat Owner' : 'Viewer'}
-                                                    </p>
-                                                    {user.banned && user.bannedReason && (
-                                                        <p className="text-xs text-red-600 mt-1">Reason: {user.bannedReason}</p>
-                                                    )}
-                                                </div>
+                                    <div key={user.id} className="border rounded-lg p-4 flex items-center justify-between">
+                                        <div>
+                                            <p className="font-semibold">{user.displayName || user.username}</p>
+                                            <p className="text-sm text-gray-600">{user.email}</p>
+                                            <div className="flex gap-2 mt-1">
+                                                {user.accountType === 'feline' && (
+                                                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                                                        Cat Owner
+                                                    </span>
+                                                )}
+                                                {user.verifiedShelter && (
+                                                    <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
+                                                        Verified Shelter
+                                                    </span>
+                                                )}
+                                                {user.banned && (
+                                                    <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
+                                                        Banned
+                                                    </span>
+                                                )}
                                             </div>
-
-                                            {!user.isAdmin && (
-                                                <div>
-                                                    {user.banned ? (
-                                                        <button
-                                                            onClick={() => handleUnbanUser(user.id, user.username)}
-                                                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition text-sm flex items-center gap-2"
-                                                        >
-                                                            <CheckCircle size={16} /> Unban
-                                                        </button>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => handleBanUser(user.id, user.username)}
-                                                            className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition text-sm flex items-center gap-2"
-                                                        >
-                                                            <UserX size={16} /> Ban User
-                                                        </button>
-                                                    )}
-                                                </div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            {user.banned ? (
+                                                <button
+                                                    onClick={() => handleUnbanUser(user.id, user.username || user.displayName)}
+                                                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition text-sm flex items-center gap-2"
+                                                >
+                                                    <CheckCircle size={16} />
+                                                    Unban
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => handleBanUser(user.id, user.username || user.displayName)}
+                                                    className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition text-sm flex items-center gap-2"
+                                                >
+                                                    <Ban size={16} />
+                                                    Ban User
+                                                </button>
                                             )}
                                         </div>
                                     </div>
@@ -885,7 +828,6 @@ function AdminPage({ currentUser }) {
                             </div>
                         </div>
                     )}
-
                 </div>
             </div>
         </div>

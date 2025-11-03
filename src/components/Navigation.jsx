@@ -1,8 +1,31 @@
-import React, { useState } from 'react';
-import { Gift, ShoppingCart, Menu, X, Shield, Bug } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Gift, ShoppingCart, Menu, X, Shield, Bug, Bell } from 'lucide-react';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 
 function Navigation({ currentPage, setCurrentPage, currentUser, setShowBuyTreats, setShowBugReport }) {
     const [showMobileMenu, setShowMobileMenu] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
+
+    // Real-time listener for unread notifications
+    useEffect(() => {
+        if (!currentUser?.uid) {
+            setUnreadCount(0);
+            return;
+        }
+
+        const q = query(
+            collection(db, 'notifications'),
+            where('userId', '==', currentUser.uid),
+            where('read', '==', false)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setUnreadCount(snapshot.size);
+        });
+
+        return () => unsubscribe();
+    }, [currentUser]);
 
     return (
         <nav className="bg-white shadow-md sticky top-0 z-50">
@@ -37,6 +60,21 @@ function Navigation({ currentPage, setCurrentPage, currentUser, setShowBuyTreats
                             }`}
                         >
                             Profile
+                        </button>
+
+                        {/* Notifications Bell */}
+                        <button
+                            onClick={() => setCurrentPage('notifications')}
+                            className={`relative font-medium transition ${
+                                currentPage === 'notifications' ? 'text-purple-600' : 'text-gray-600 hover:text-purple-600'
+                            }`}
+                        >
+                            <Bell size={20} />
+                            {unreadCount > 0 && (
+                                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                                    {unreadCount > 9 ? '9+' : unreadCount}
+                                </span>
+                            )}
                         </button>
 
                         {/* Admin link - only for admins */}
@@ -119,6 +157,23 @@ function Navigation({ currentPage, setCurrentPage, currentUser, setShowBuyTreats
                             className="block w-full text-left px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
                         >
                             Profile
+                        </button>
+                        <button
+                            onClick={() => {
+                                setCurrentPage('notifications');
+                                setShowMobileMenu(false);
+                            }}
+                            className="block w-full text-left px-4 py-2 text-gray-600 hover:bg-gray-100 rounded flex items-center justify-between"
+                        >
+                            <span className="flex items-center gap-2">
+                                <Bell size={18} />
+                                Notifications
+                            </span>
+                            {unreadCount > 0 && (
+                                <span className="bg-red-500 text-white text-xs rounded-full px-2 py-1 font-bold">
+                                    {unreadCount}
+                                </span>
+                            )}
                         </button>
                         {currentUser?.isAdmin && (
                             <button
