@@ -24,7 +24,7 @@ function UploadPage({ currentUser, cats, selectedCat, setSelectedCat, editingPos
     const imageRef = useRef(null);
     const containerRef = useRef(null);
 
-    // Categories users can choose from (added Throwback)
+    // Categories users can choose from
     const categories = [
         { id: 'throwback', name: 'Throwback', emoji: '🕰️', description: 'Old pics, new vibes', special: true },
         { id: 'everyday', name: 'Everyday Life', emoji: '🐱', description: 'Daily moments' },
@@ -34,49 +34,33 @@ function UploadPage({ currentUser, cats, selectedCat, setSelectedCat, editingPos
         { id: 'sleeping', name: 'Sleepy Time', emoji: '😴', description: 'Catching Z\'s' },
         { id: 'playing', name: 'Playtime', emoji: '🎾', description: 'Action shots' },
         { id: 'food', name: 'Food Time', emoji: '🍽️', description: 'Nom nom nom' },
-        { id: 'adventure', name: 'Adventures', emoji: '🌟', description: 'Exploring the world' },
+        { id: 'adventure', name: 'Adventure', emoji: '🌟', description: 'Exploring the world' },
         { id: 'grooming', name: 'Grooming', emoji: '✨', description: 'Looking fabulous' },
-        { id: 'tricks', name: 'Tricks & Skills', emoji: '🎪', description: 'Showing off' }
+        { id: 'tricks', name: 'Tricks & Skills', emoji: '🎪', description: 'Showing off talents' }
     ];
 
-    useEffect(() => {
-        if (editingPost) {
-            setCaption(editingPost.caption);
-            setPreview(editingPost.imageUrl);
-            setSelectedCategories(editingPost.categories || []);
-        }
-    }, [editingPost]);
-
-    // Check if user can upload
-    if (currentUser?.accountType === 'viewer') {
+    if (!currentUser) {
         return (
             <div className="max-w-2xl mx-auto">
-                <div className="bg-white rounded-lg shadow p-12 text-center">
-                    <div className="text-6xl mb-4">😿</div>
-                    <h2 className="text-2xl font-bold mb-4">Viewer accounts cannot post</h2>
-                    <p className="text-gray-600 mb-4">
-                        To share cat photos, you'll need to upgrade to a Cat Owner account.
-                    </p>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+                    <p className="text-gray-700 mb-4">You need to be logged in to upload photos.</p>
                     <button
-                        onClick={() => setCurrentPage('home')}
+                        onClick={() => window.location.reload()}
                         className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 transition"
                     >
-                        Back to Home
+                        Go to Login
                     </button>
                 </div>
             </div>
         );
     }
 
-    if (cats.length === 0 && currentUser?.accountType === 'feline') {
+    if (!selectedCat && cats.length === 0) {
         return (
             <div className="max-w-2xl mx-auto">
-                <div className="bg-white rounded-lg shadow p-12 text-center">
-                    <div className="text-6xl mb-4">😺</div>
-                    <h2 className="text-2xl font-bold mb-4">Add your first cat profile</h2>
-                    <p className="text-gray-600 mb-4">
-                        Before uploading photos, you need to create a cat profile!
-                    </p>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+                    <h3 className="text-xl font-bold mb-2">No Cat Profile Yet</h3>
+                    <p className="text-gray-700 mb-4">You need to add a cat to your profile before uploading photos.</p>
                     <button
                         onClick={() => setCurrentPage('profile')}
                         className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 transition"
@@ -142,6 +126,15 @@ function UploadPage({ currentUser, cats, selectedCat, setSelectedCat, editingPos
         }
     };
 
+    // Helper function to get client coordinates from mouse or touch event
+    const getClientCoordinates = (e) => {
+        if (e.touches && e.touches.length > 0) {
+            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+        return { x: e.clientX, y: e.clientY };
+    };
+
+    // Mouse event handlers
     const handleMouseDown = (e, type) => {
         e.preventDefault();
         if (type === 'drag') setIsDragging(true);
@@ -149,11 +142,21 @@ function UploadPage({ currentUser, cats, selectedCat, setSelectedCat, editingPos
         setDragStart({ x: e.clientX, y: e.clientY });
     };
 
-    const handleMouseMove = (e) => {
+    // Touch event handlers
+    const handleTouchStart = (e, type) => {
+        e.preventDefault();
+        if (type === 'drag') setIsDragging(true);
+        if (type === 'resize') setIsResizing(true);
+        const coords = getClientCoordinates(e);
+        setDragStart(coords);
+    };
+
+    const handleMove = (e) => {
         if (!isDragging && !isResizing) return;
 
-        const deltaX = e.clientX - dragStart.x;
-        const deltaY = e.clientY - dragStart.y;
+        const coords = getClientCoordinates(e);
+        const deltaX = coords.x - dragStart.x;
+        const deltaY = coords.y - dragStart.y;
 
         if (isDragging) {
             setCropBox(prev => {
@@ -191,21 +194,30 @@ function UploadPage({ currentUser, cats, selectedCat, setSelectedCat, editingPos
             });
         }
 
-        setDragStart({ x: e.clientX, y: e.clientY });
+        setDragStart(coords);
     };
 
-    const handleMouseUp = () => {
+    const handleEnd = () => {
         setIsDragging(false);
         setIsResizing(false);
     };
 
+    // Add event listeners for both mouse and touch
     useEffect(() => {
         if (isDragging || isResizing) {
-            window.addEventListener('mousemove', handleMouseMove);
-            window.addEventListener('mouseup', handleMouseUp);
+            // Mouse events
+            window.addEventListener('mousemove', handleMove);
+            window.addEventListener('mouseup', handleEnd);
+
+            // Touch events
+            window.addEventListener('touchmove', handleMove, { passive: false });
+            window.addEventListener('touchend', handleEnd);
+
             return () => {
-                window.removeEventListener('mousemove', handleMouseMove);
-                window.removeEventListener('mouseup', handleMouseUp);
+                window.removeEventListener('mousemove', handleMove);
+                window.removeEventListener('mouseup', handleEnd);
+                window.removeEventListener('touchmove', handleMove);
+                window.removeEventListener('touchend', handleEnd);
             };
         }
     }, [isDragging, isResizing, dragStart]);
@@ -215,48 +227,46 @@ function UploadPage({ currentUser, cats, selectedCat, setSelectedCat, editingPos
 
         const canvas = canvasRef.current;
         const img = imageRef.current;
-        theContainer:
-        {
-            const container = containerRef.current;
-            if (!container) break theContainer;
+        const container = containerRef.current;
 
-            // Calculate the image's position within the container (image is centered)
-            const containerWidth = container.clientWidth;
-            const containerHeight = container.clientHeight;
+        if (!container) return;
 
-            const imgOffsetX = (containerWidth - imageSize.width) / 2;
-            const imgOffsetY = (containerHeight - imageSize.height) / 2;
+        // Calculate the image's position within the container (image is centered)
+        const containerWidth = container.clientWidth;
+        const containerHeight = container.clientHeight;
 
-            // Adjust crop box coordinates to be relative to the image, not the container
-            const relativeCropX = cropBox.x - imgOffsetX;
-            const relativeCropY = cropBox.y - imgOffsetY;
+        const imgOffsetX = (containerWidth - imageSize.width) / 2;
+        const imgOffsetY = (containerHeight - imageSize.height) / 2;
 
-            // Calculate scale from displayed image to natural image
-            const scaleX = img.naturalWidth / imageSize.width;
-            const scaleY = img.naturalHeight / imageSize.height;
+        // Adjust crop box coordinates to be relative to the image, not the container
+        const relativeCropX = cropBox.x - imgOffsetX;
+        const relativeCropY = cropBox.y - imgOffsetY;
 
-            // Scale to natural image coordinates
-            const cropX = relativeCropX * scaleX;
-            const cropY = relativeCropY * scaleY;
-            const cropWidth = cropBox.width * scaleX;
-            const cropHeight = cropBox.height * scaleY;
+        // Calculate scale from displayed image to natural image
+        const scaleX = img.naturalWidth / imageSize.width;
+        const scaleY = img.naturalHeight / imageSize.height;
 
-            // Set canvas to crop size
-            canvas.width = cropWidth;
-            canvas.height = cropHeight;
+        // Scale to natural image coordinates
+        const cropX = relativeCropX * scaleX;
+        const cropY = relativeCropY * scaleY;
+        const cropWidth = cropBox.width * scaleX;
+        const cropHeight = cropBox.height * scaleY;
 
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(
-                img,
-                cropX, cropY, cropWidth, cropHeight,
-                0, 0, cropWidth, cropHeight
-            );
+        // Set canvas to crop size
+        canvas.width = cropWidth;
+        canvas.height = cropHeight;
 
-            canvas.toBlob((blob) => {
-                setEditedImage(blob);
-                setShowEditor(false);
-            }, 'image/jpeg', 0.95);
-        }
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(
+            img,
+            cropX, cropY, cropWidth, cropHeight,
+            0, 0, cropWidth, cropHeight
+        );
+
+        canvas.toBlob((blob) => {
+            setEditedImage(blob);
+            setShowEditor(false);
+        }, 'image/jpeg', 0.95);
     };
 
     const handleUpload = async () => {
@@ -396,7 +406,7 @@ function UploadPage({ currentUser, cats, selectedCat, setSelectedCat, editingPos
                         <div className="border-2 border-gray-300 rounded-lg p-4 mb-4">
                             <div
                                 ref={containerRef}
-                                className="relative overflow-hidden bg-gray-900 rounded-lg mx-auto"
+                                className="relative overflow-hidden bg-gray-900 rounded-lg mx-auto touch-none"
                                 style={{
                                     width: '600px',
                                     height: '400px',
@@ -453,11 +463,17 @@ function UploadPage({ currentUser, cats, selectedCat, setSelectedCat, editingPos
                                         top: cropBox.y,
                                         width: cropBox.width,
                                         height: cropBox.height,
-                                        cursor: isDragging ? 'grabbing' : 'grab'
+                                        cursor: isDragging ? 'grabbing' : 'grab',
+                                        touchAction: 'none'
                                     }}
                                     onMouseDown={(e) => {
                                         if (e.target === e.currentTarget) {
                                             handleMouseDown(e, 'drag');
+                                        }
+                                    }}
+                                    onTouchStart={(e) => {
+                                        if (e.target === e.currentTarget) {
+                                            handleTouchStart(e, 'drag');
                                         }
                                     }}
                                 >
@@ -471,10 +487,12 @@ function UploadPage({ currentUser, cats, selectedCat, setSelectedCat, editingPos
 
                                     {/* Resize handle */}
                                     <div
-                                        className="absolute bottom-0 right-0 w-6 h-6 bg-white border-2 border-purple-500 rounded-full cursor-nwse-resize transform translate-x-1/2 translate-y-1/2"
+                                        className="absolute bottom-0 right-0 w-8 h-8 bg-white border-2 border-purple-500 rounded-full cursor-nwse-resize transform translate-x-1/2 translate-y-1/2 flex items-center justify-center"
+                                        style={{ touchAction: 'none' }}
                                         onMouseDown={(e) => handleMouseDown(e, 'resize')}
+                                        onTouchStart={(e) => handleTouchStart(e, 'resize')}
                                     >
-                                        <Maximize2 size={12} className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-purple-600" />
+                                        <Maximize2 size={14} className="text-purple-600" />
                                     </div>
 
                                     {/* Corner handles */}
@@ -557,61 +575,44 @@ function UploadPage({ currentUser, cats, selectedCat, setSelectedCat, editingPos
                                                 ? category.special
                                                     ? 'border-pink-500 bg-pink-50'
                                                     : 'border-purple-500 bg-purple-50'
-                                                : 'border-gray-200 hover:border-gray-300'
+                                                : 'border-gray-200 hover:border-purple-300 hover:bg-gray-50'
                                         }`}
                                     >
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className="text-xl">{category.emoji}</span>
-                                            <span className={`font-semibold text-sm ${
-                                                selectedCategories.includes(category.id)
-                                                    ? category.special ? 'text-pink-700' : 'text-purple-700'
-                                                    : 'text-gray-700'
-                                            }`}>
-                                                {category.name}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs text-gray-500">{category.description}</p>
+                                        <div className="text-2xl mb-1">{category.emoji}</div>
+                                        <div className={`font-bold text-sm mb-1 ${
+                                            selectedCategories.includes(category.id) && category.special ? 'text-pink-700' : ''
+                                        }`}>{category.name}</div>
+                                        <div className="text-xs text-gray-500">{category.description}</div>
                                     </button>
                                 ))}
                             </div>
-
-                            {selectedCategories.length > 0 && (
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                    <span className="text-xs text-gray-600">Selected:</span>
-                                    {selectedCategories.map(catId => {
-                                        const cat = categories.find(c => c.id === catId);
-                                        return (
-                                            <span key={catId} className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                                                {cat?.emoji} {cat?.name}
-                                            </span>
-                                        );
-                                    })}
-                                </div>
-                            )}
                         </div>
 
                         <div className="flex gap-3">
                             <button
                                 onClick={() => {
-                                    if (editingPost) {
-                                        setEditingPost(null);
-                                    }
-                                    setCaption('');
                                     setPreview(null);
                                     setSelectedFile(null);
                                     setEditedImage(null);
                                     setSelectedCategories([]);
-                                    setCurrentPage('home');
+                                    if (editingPost) {
+                                        setEditingPost(null);
+                                        setCurrentPage('home');
+                                    }
                                 }}
-                                className="flex-1 px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
                                 disabled={uploading}
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={handleUpload}
-                                disabled={uploading || !selectedCat || selectedCategories.length === 0}
-                                className="flex-1 bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={uploading || selectedCategories.length === 0}
+                                className={`flex-1 px-4 py-3 rounded-lg font-semibold transition ${
+                                    uploading || selectedCategories.length === 0
+                                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                        : 'bg-purple-600 text-white hover:bg-purple-700'
+                                }`}
                             >
                                 {uploading ? 'Posting...' : (editingPost ? 'Update Post' : 'Post')}
                             </button>
