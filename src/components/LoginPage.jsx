@@ -69,75 +69,85 @@ function LoginPage() {
                         onClick={dismissWelcome}
                         aria-hidden="true"
                     />
+                    {/* FIXED: Added max-h-[90vh] and overflow-y-auto to the inner container */}
                     <div
-                        className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6"
+                        className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto"
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="beta-title"
                     >
-                        <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold tracking-wide px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">
-                                    v1 • Beta Testing
-                                </span>
+                        {/* FIXED: Made header sticky so X button is always visible */}
+                        <div className="sticky top-0 bg-white z-10 p-6 pb-3 border-b border-gray-100">
+                            <div className="flex items-start justify-between">
+                                <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold tracking-wide px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">
+                            v1 • Beta Testing
+                        </span>
+                                </div>
+                                <button
+                                    onClick={dismissWelcome}
+                                    className="text-gray-500 hover:text-gray-700 transition-colors"
+                                    aria-label="Close"
+                                    title="Close"
+                                >
+                                    ✖
+                                </button>
                             </div>
-                            <button
-                                onClick={dismissWelcome}
-                                className="text-gray-500 hover:text-gray-700"
-                                aria-label="Close"
-                                title="Close"
-                            >
-                                ✖
-                            </button>
                         </div>
 
-                        <h2 id="beta-title" className="text-2xl font-bold text-purple-700 mb-2">
-                            Hi, I’m Ben — thanks for trying OnlyBeans! 🐾
-                        </h2>
+                        {/* Scrollable content area */}
+                        <div className="p-6 pt-3">
+                            <h2 id="beta-title" className="text-2xl font-bold text-purple-700 mb-2">
+                                Hi, I'm Ben — thanks for trying OnlyBeans! 🐾
+                            </h2>
 
-                        <p className="text-gray-700 mb-4">
-                            This is an early beta. I’m actively building and fixing things, so your feedback is gold.
-                        </p>
+                            <p className="text-gray-700 mb-4">
+                                This is an early beta. I'm actively building and fixing things, so your feedback is gold.
+                            </p>
 
-                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
-                            <h3 className="font-semibold text-purple-800 mb-2">Quick start</h3>
-                            <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
-                                <li>Sign up — everyone starts as a <strong>Viewer</strong>.</li>
-                                <li>After you log in, visit <strong>Discover</strong> to follow cats and like posts.</li>
-                                <li>Want to post? Go to your <strong>Profile</strong> and <strong>Add Cat</strong>, then upload photos.</li>
-                                <li>Gift <strong>treats</strong> to posts you love. Creators can redeem 500 treats for real goodies.(Redemptions closed during beta)</li>
-                                <li>See something weird? Use the <strong>🐞 Report a Bug</strong> button in the top navigation after logging in.</li>
-                            </ul>
+                            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
+                                <h3 className="font-semibold text-purple-800 mb-2">Quick start</h3>
+                                <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
+                                    <li>Sign up — everyone starts as a <strong>Viewer</strong>.</li>
+                                    <li>After you log in, visit <strong>Discover</strong> to follow cats and like posts.</li>
+                                    <li>Want to post? Go to your <strong>Profile</strong> and <strong>Add Cat</strong>, then upload photos.</li>
+                                    <li>Gift <strong>treats</strong> to posts you love. Creators can redeem 500 treats for real goodies.(Redemptions closed during beta)</li>
+                                    <li>See something weird? Use the <strong>🐞 Report a Bug</strong> button in the top navigation after logging in.</li>
+                                </ul>
+                            </div>
+
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                                <h3 className="font-semibold text-green-800 mb-2">Help us grow</h3>
+                                <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
+                                    <li>Please invite your friends to join the beta.</li>
+                                    <li>Tell your <strong>local animal shelter</strong> about OnlyBeans — we support treat donations!</li>
+                                </ul>
+                            </div>
+
+                            <p className="text-xs text-gray-500 mb-4">
+                                P.S. If the site acts up, a quick bug report helps me fix it ASAP. Thank you! — Ben
+                            </p>
                         </div>
 
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-                            <h3 className="font-semibold text-green-800 mb-2">Help us grow</h3>
-                            <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
-                                <li>Please invite your friends to join the beta.</li>
-                                <li>Tell your <strong>local animal shelter</strong> about OnlyBeans — we support treat donations!</li>
-                            </ul>
-                        </div>
-
-                        <p className="text-xs text-gray-500 mb-4">
-                            P.S. If the site acts up, a quick bug report helps me fix it ASAP. Thank you! — Ben
-                        </p>
-
-                        <div className="flex gap-2">
-                            <button
-                                onClick={dismissWelcome}
-                                className="flex-1 bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-purple-700 transition"
-                            >
-                                Got it — let’s go!
-                            </button>
-                            <button
-                                onClick={() => {
-                                    // Don’t persist the dismissal if they want to re-read next time
-                                    setShowWelcome(false);
-                                }}
-                                className="flex-1 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 transition"
-                            >
-                                Remind me next time
-                            </button>
+                        {/* FIXED: Made buttons sticky at bottom so they're always visible */}
+                        <div className="sticky bottom-0 bg-white z-10 p-6 pt-3 border-t border-gray-100">
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={dismissWelcome}
+                                    className="flex-1 bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-purple-700 transition"
+                                >
+                                    Got it — let's go!
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        // Don't persist the dismissal if they want to re-read next time
+                                        setShowWelcome(false);
+                                    }}
+                                    className="flex-1 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 transition"
+                                >
+                                    Remind me next time
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

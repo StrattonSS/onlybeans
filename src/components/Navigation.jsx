@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Gift, ShoppingCart, Menu, X, Shield, Bug, Bell } from 'lucide-react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import NotificationBell from './NotificationBell';
 
 function Navigation({ currentPage, setCurrentPage, currentUser, setShowBuyTreats, setShowBugReport }) {
     const [showMobileMenu, setShowMobileMenu] = useState(false);

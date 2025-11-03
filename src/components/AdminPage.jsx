@@ -3,7 +3,7 @@ import {
     Users, Bug, Shield, Activity, CheckCircle, XCircle, Ban, UserX, Package, Truck
 } from 'lucide-react';
 import {
-    collection, getDocs, getDoc, doc, updateDoc, deleteDoc, increment
+    collection, getDocs, getDoc, doc, updateDoc, deleteDoc, increment,addDoc, serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
@@ -336,50 +336,54 @@ function AdminPage({ currentUser }) {
         }
     };
 
+    // This is the FIXED rejectRedemption function for AdminPage.jsx
+// Replace the existing rejectRedemption function with this one
+
     const rejectRedemption = async (r) => {
         const reason = window.prompt('Enter rejection reason:');
         if (!reason) return;
-
         try {
-            const treatsToRefund = r.treats || r.treatsRedeemed || 0;
-
-            // Refund treats to the correct place
-            if (r.catId) {
-                // If redemption was for a specific cat, refund to cat's treatsEarned
-                await updateDoc(doc(db, 'cats', r.catId), {
-                    treatsEarned: increment(treatsToRefund)
-                });
-            } else {
-                // Otherwise, refund to user's treatBalance
-                await updateDoc(doc(db, 'users', r.userId), {
-                    treatBalance: increment(treatsToRefund)
-                });
-            }
-
-            // Update redemption status
+            // 1. Update redemption status
             await updateDoc(doc(db, 'redemptions', r.id), {
                 status: 'rejected',
                 rejectedBy: currentUser.uid,
                 rejectedAt: new Date(),
                 rejectionReason: reason,
-                refundedTreats: treatsToRefund,
                 updatedAt: new Date(),
             });
 
-            // Send notification with rejection reason
-            if (r.userId) {
-                await createRedemptionRejectedNotification(
-                    r.userId,
-                    currentUser.displayName || currentUser.username || 'Admin',
-                    reason
-                );
+            // 2. Refund the treats
+            const refundAmount = r.treatsRedeemed || r.treats || 500;
+
+            if (r.catId) {
+                // Refund to cat's treats
+                await updateDoc(doc(db, 'cats', r.catId), {
+                    treatsEarned: increment(refundAmount)
+                });
+            } else if (r.userId) {
+                // Refund to user's treats
+                await updateDoc(doc(db, 'users', r.userId), {
+                    treatsEarned: increment(refundAmount)
+                });
             }
 
+            // 3. Create a notification for the user
+            await addDoc(collection(db, 'notifications'), {
+                userId: r.userId,
+                type: 'redemption_rejected',
+                title: 'Redemption Rejected',
+                message: `Your redemption request was rejected. Reason: ${reason}. ${refundAmount} treats have been refunded to your account.`,
+                redemptionId: r.id,
+                refundedAmount: refundAmount,
+                read: false,
+                createdAt: serverTimestamp()
+            });
+
             await loadRedemptions();
-            alert(`Redemption rejected. ${treatsToRefund} treats refunded and user notified.`);
+            alert(`Redemption rejected and ${refundAmount} treats refunded to user.`);
         } catch (e) {
             console.error('Error rejecting redemption:', e);
-            alert('Error rejecting redemption. Please try again.');
+            alert('Error rejecting redemption.');
         }
     };
 
