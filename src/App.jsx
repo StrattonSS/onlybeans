@@ -11,7 +11,7 @@ import DiscoverPage from './components/DiscoverPage';
 import UploadPage from './components/UploadPage';
 import ProfilePage from './components/ProfilePage';
 import AdminPage from './components/AdminPage';
-
+import SettingsPage from './components/SettingsPage';
 // Modals
 import AddCatModal from './components/modals/AddCatModal';
 import BuyTreatsModal from './components/modals/BuyTreatsModal';
@@ -222,6 +222,12 @@ function App() {
                         setShowAddCat={setShowAddCat}
                         setShowRedemption={setShowRedemption}
                         setCurrentPage={setCurrentPage}
+                    />
+                )}
+                {currentPage === 'settings' && (
+                    <SettingsPage
+                        currentUser={currentUser}
+                        refreshCurrentUser={refreshCurrentUser}
                     />
                 )}
 
